@@ -125,13 +125,13 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             const formattedTitle = 
 `${movieTitle}
 
-Quality: 🫟📽️ ${quality}
-Size: 🫟🎬 ${size}
-Seeders: 🫟🧑‍🔧 ${seeders}
-Source: 🫟📡 ${source}
-Audio: 🫟🎧 ${audio}
-Language: 🫟🌐 ${language}
-Cached: 🫟🧲 ${isCached ? 'Yes' : 'No'}`;
+♻️Quality: ${quality}
+♻️Size: ${size}
+♻️Seeders: ${seeders}
+♻️Source: ${source}
+♻️Audio: ${audio}
+♻️Language: ${language}
+♻️Cached: ${isCached ? 'Yes' : 'No'}`;
             
             return {
                 title: formattedTitle,
