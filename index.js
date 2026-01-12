@@ -5,19 +5,42 @@ const app = express();
 const PORT = process.env.PORT || 8080;
 const RD_KEY = process.env.REAL_DEBRID_API;
 
-// MANIFEST - بإسم جديد
+// MANIFEST مع catalogs
 app.get('/manifest.json', (req, res) => {
     res.json({
         "id": "pro.souhail.stremio",
         "version": "1.0.0",
         "name": "Souhail Pro",
-        "description": "Real-Debrid Torrent Streaming Pro",
-        "resources": ["stream"],
-        "types": ["movie", "series"]
+        "description": "Real-Debrid Torrent Streaming",
+        "logo": "https://cdn-icons-png.flaticon.com/512/3095/3095588.png",
+        "background": "https://images.unsplash.com/photo-1536440136628-849c177e76a1",
+        "resources": ["stream", "catalog"],
+        "types": ["movie", "series"],
+        "catalogs": [
+            {
+                "type": "movie",
+                "id": "movies",
+                "name": "Movies"
+            },
+            {
+                "type": "series",
+                "id": "series",
+                "name": "Series"
+            }
+        ],
+        "idPrefixes": ["tt"],
+        "behaviorHints": {
+            "configurable": true
+        }
     });
 });
 
-// STREAM - تنظيم محترف
+// CATALOG endpoint
+app.get('/catalog/:type/:id.json', (req, res) => {
+    res.json({ metas: [] }); // فارغ، استعمل search
+});
+
+// STREAM مع التفاصيل
 app.get('/stream/:type/:id.json', async (req, res) => {
     if (!RD_KEY) return res.json({ streams: [] });
     
@@ -32,14 +55,15 @@ app.get('/stream/:type/:id.json', async (req, res) => {
             const title = stream.name || stream.title || '';
             const isCached = stream.url.includes('real-debrid.com');
             
-            // معلومات منظمة
-            const movieName = cleanText(title.replace(/\./g, ' ').substring(0, 50));
-            const size = (title.match(/(\d+(\.\d+)?\s*GB)/i) || [''])[0] || 'Unknown';
-            const quality = title.includes('2160p') ? '4K' : title.includes('1080p') ? '1080p' : 'HD';
+            // تفاصيل
+            const movieName = cleanTitle(title);
+            const size = (title.match(/(\d+(\.\d+)?\s*GB)/i) || ['Unknown'])[0];
+            const quality = title.includes('2160p') ? '4K' : 
+                           title.includes('1080p') ? '1080p' : 'HD';
             const seeders = (title.match(/(\d+)\s*Seeds?/i) || [])[1] || '?';
             const source = (title.match(/\[(.*?)\]/) || [])[1] || 'Torrent';
             
-            // تنسيق محترف
+            // تنسيق
             const formattedTitle = 
 `🎬 ${movieName}
 📺 ${quality} | 👤 ${seeders}
@@ -50,7 +74,10 @@ ${isCached ? '✅ CACHED' : '🔗 TORRENT'}`;
             return {
                 title: formattedTitle,
                 url: stream.url,
-                behaviorHints: stream.behaviorHints || {}
+                behaviorHints: {
+                    notWebReady: false,
+                    bingeGroup: `souhail-${req.params.id}`
+                }
             };
         });
         
@@ -61,11 +88,13 @@ ${isCached ? '✅ CACHED' : '🔗 TORRENT'}`;
     }
 });
 
-function cleanText(text) {
-    return text
+function cleanTitle(title) {
+    return title
         .replace(/\[.*?\]/g, '')
+        .replace(/\./g, ' ')
         .replace(/\s+/g, ' ')
-        .trim();
+        .trim()
+        .substring(0, 50);
 }
 
 // INSTALL
@@ -76,6 +105,7 @@ app.get('/install', (req, res) => {
             Install Now
         </a>
         <p><code>https://${req.hostname}/manifest.json</code></p>
+        <p><a href="/stream/movie/tt1375666.json">Test Stream</a></p>
     `);
 });
 
@@ -84,5 +114,5 @@ app.get('/', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(`Souhail Pro addon running on port ${PORT}`);
+    console.log(`✅ Souhail Pro ready: http://localhost:${PORT}/install`);
 });
