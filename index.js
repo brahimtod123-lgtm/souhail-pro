@@ -20,66 +20,118 @@ app.get('/manifest.json', (req, res) => {
     });
 });
 
-// STREAM - MODIFIED VERSION
+// STREAM - FIXED VERSION
 app.get('/stream/:type/:id.json', async (req, res) => {
     if (!RD_KEY) return res.json({ streams: [] });
     
     try {
-        const url = `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/${req.params.type}/${req.params.id}.json`;
-        const response = await fetch(url);
+        const { type, id } = req.params;
+        
+        // الحصول على معلومات الفيلم أولاً من TMDB
+        let movieInfo = { title: '', year: '' };
+        if (id.startsWith('tt')) {
+            try {
+                const tmdbResponse = await fetch(
+                    `https://api.themoviedb.org/3/find/${id}?api_key=9b8933e4c7b5c78de32f1d301b6988ed&external_source=imdb_id`
+                );
+                const tmdbData = await tmdbResponse.json();
+                if (tmdbData.movie_results && tmdbData.movie_results.length > 0) {
+                    movieInfo.title = tmdbData.movie_results[0].title;
+                    movieInfo.year = tmdbData.movie_results[0].release_date?.substring(0, 4) || '';
+                }
+            } catch (e) {
+                console.log("TMDB API error, using fallback");
+            }
+        }
+        
+        // الحصول على الستريمات من Torrentio
+        const url = `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/${type}/${id}.json`;
+        const response = await fetch(url, {
+            headers: {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        });
+        
         const data = await response.json();
         
-        if (!data.streams) return res.json({ streams: [] });
+        if (!data.streams || data.streams.length === 0) {
+            return res.json({ streams: [] });
+        }
         
-        const processedStreams = data.streams.map(stream => {
-            const title = stream.name || stream.title || '';
+        // حفظ العناوين الأصلية في متغير للتصحيح
+        console.log("Original Torrentio titles:");
+        data.streams.forEach((stream, i) => {
+            console.log(`${i + 1}. ${stream.name || stream.title}`);
+        });
+        
+        const processedStreams = data.streams.map((stream, index) => {
+            const originalTitle = stream.name || stream.title || '';
             const isCached = stream.url.includes('real-debrid.com');
             
-            // تنظيف اسم الفيلم
-            const movieName = title
-                .replace(/\[.*?\]/g, '')
-                .replace(/\./g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .substring(0, 50);
-            
-            // استخراج كل التفاصيل منفصلة
-            // 1. حجم الملف
-            const size = (title.match(/(\d+(\.\d+)?\s*GB)/i) || ['غير معروف'])[0];
-            
-            // 2. جودة الصورة
+            // استخراج المعلومات من العنوان الأصلي
             let quality = 'HD';
-            if (title.includes('2160p')) quality = '4K';
+            let size = 'Unknown';
+            let seeders = '?';
+            let source = 'RD+';
+            let audio = 'Stereo';
+            let language = 'Multi';
+            
+            // البحث عن المعلومات في العنوان
+            const title = originalTitle.toLowerCase();
+            
+            // الجودة
+            if (title.includes('2160p') || title.includes('4k')) quality = '4K';
             else if (title.includes('1080p')) quality = '1080p';
             else if (title.includes('720p')) quality = '720p';
+            else if (title.includes('480p')) quality = '480p';
             
-            // 3. عدد البذور
-            const seeders = (title.match(/(\d+)\s*Seeds?/i) || [])[1] || '?';
+            // DV/HDR
+            if (title.includes('dv') || title.includes('dolby vision')) {
+                quality += ' DV';
+            }
+            if (title.includes('hdr')) {
+                quality += ' HDR';
+            }
             
-            // 4. مصدر التورنت
-            const source = (title.match(/\[(.*?)\]/) || [])[1] || 'Torrent';
+            // الحجم
+            const sizeMatch = originalTitle.match(/(\d+\.?\d*)\s*(GB|GiB)/i);
+            if (sizeMatch) {
+                size = `${sizeMatch[1]} GB`;
+            } else {
+                const sizeMB = originalTitle.match(/(\d+\.?\d*)\s*(MB|MiB)/i);
+                if (sizeMB) {
+                    size = `${(parseFloat(sizeMB[1]) / 1024).toFixed(1)} GB`;
+                }
+            }
             
-            // 5. معلومات الصوت
-            let audio = 'Stereo';
-            if (title.includes('DTS')) audio = 'DTS';
-            else if (title.includes('Dolby')) audio = 'Dolby';
+            // البذور
+            const seedMatch = originalTitle.match(/seeds?:\s*(\d+)/i) || 
+                             originalTitle.match(/(\d+)\s*seeds?/i);
+            if (seedMatch) seeders = seedMatch[1];
             
-            // 6. اللغة
-            let language = 'Multi';
-            if (title.includes('French')) language = 'French';
-            else if (title.includes('Arabic')) language = 'Arabic';
+            // الصوت
+            if (title.includes('dts')) audio = 'DTS';
+            else if (title.includes('dolby')) audio = 'Dolby';
+            else if (title.includes('aac')) audio = 'AAC';
+            else if (title.includes('ac3')) audio = 'AC3';
             
-            // كل تفصيل في سطر منفصل
+            // إنشاء عنوان الفيلم
+            let movieTitle = movieInfo.title || `Movie ${index + 1}`;
+            if (movieInfo.year) {
+                movieTitle += ` (${movieInfo.year})`;
+            }
+            
+            // إنشاء العنوان النهائي مع كل المعلومات
             const formattedTitle = 
-`${movieName}
+`${movieTitle}
 
-الجودة: ${quality}
-الحجم: ${size}
-البذور: ${seeders}
-المصدر: ${source}
-الصوت: ${audio}
-اللغة: ${language}
-الكاش: ${isCached ? 'نعم' : 'لا'}`;
+Quality: 🫟📽️ ${quality}
+Size: 🫟🎬 ${size}
+Seeders: 🫟🧑‍🔧 ${seeders}
+Source: 🫟📡 ${source}
+Audio: 🫟🎧 ${audio}
+Language: 🫟🌐 ${language}
+Cached: 🫟🧲 ${isCached ? 'Yes' : 'No'}`;
             
             return {
                 title: formattedTitle,
@@ -90,12 +142,13 @@ app.get('/stream/:type/:id.json', async (req, res) => {
         
         res.json({ streams: processedStreams });
         
-    } catch {
+    } catch (error) {
+        console.error("Error in stream handler:", error);
         res.json({ streams: [] });
     }
 });
 
-// ====== واجهة INSTALL PRO ======
+// INSTALL PAGE
 app.get('/install', (req, res) => {
     const installUrl = `https://${req.hostname}/manifest.json`;
     const stremioUrl = `stremio://stremio.xyz/app/${req.hostname}/manifest.json`;
