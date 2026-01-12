@@ -2,25 +2,11 @@ const express = require('express');
 const fetch = require('node-fetch');
 const app = express();
 
-// CORS FIX
-app.use((req, res, next) => {
-    res.header('Access-Control-Allow-Origin', '*');
-    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
-    res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
-    
-    if (req.method === 'OPTIONS') {
-        return res.status(200).end();
-    }
-    
-    next();
-});
-
 const PORT = process.env.PORT || 8080;
 const RD_KEY = process.env.REAL_DEBRID_API;
 
 // MANIFEST
 app.get('/manifest.json', (req, res) => {
-    console.log('📄 Manifest requested');
     res.json({
         "id": "pro.souhail.stremio",
         "version": "1.0.0",
@@ -30,39 +16,26 @@ app.get('/manifest.json', (req, res) => {
         "background": "https://images.unsplash.com/photo-1536440136628-849c177e76a1",
         "resources": ["stream"],
         "types": ["movie", "series"],
-        "idPrefixes": ["tt"],
-        "catalogs": []
+        "idPrefixes": ["tt"]
     });
 });
 
-// STREAM
+// STREAM - MODIFIED VERSION
 app.get('/stream/:type/:id.json', async (req, res) => {
-    console.log(`🎬 Stream request: ${req.params.type}/${req.params.id}`);
-    
-    if (!RD_KEY) {
-        console.log("❌ No Real-Debrid API key");
-        return res.json({ streams: [] });
-    }
+    if (!RD_KEY) return res.json({ streams: [] });
     
     try {
         const url = `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/${req.params.type}/${req.params.id}.json`;
-        console.log(`📡 Fetching from: ${url}`);
-        
-        const response = await fetch(url, {
-            timeout: 10000
-        });
-        
+        const response = await fetch(url);
         const data = await response.json();
-        console.log(`✅ Found ${data.streams?.length || 0} streams`);
         
-        if (!data.streams) {
-            return res.json({ streams: [] });
-        }
+        if (!data.streams) return res.json({ streams: [] });
         
         const processedStreams = data.streams.map(stream => {
-            const title = stream.name || stream.title || 'Unknown';
+            const title = stream.name || stream.title || '';
             const isCached = stream.url.includes('real-debrid.com');
             
+            // تنظيف اسم الفيلم
             const movieName = title
                 .replace(/\[.*?\]/g, '')
                 .replace(/\./g, ' ')
@@ -70,18 +43,43 @@ app.get('/stream/:type/:id.json', async (req, res) => {
                 .trim()
                 .substring(0, 50);
             
-            const size = (title.match(/(\d+(\.\d+)?\s*GB)/i) || ['Unknown'])[0];
-            const quality = title.includes('2160p') ? '4K' : 
-                           title.includes('1080p') ? '1080p' : 'HD';
+            // استخراج كل التفاصيل منفصلة
+            // 1. حجم الملف
+            const size = (title.match(/(\d+(\.\d+)?\s*GB)/i) || ['غير معروف'])[0];
+            
+            // 2. جودة الصورة
+            let quality = 'HD';
+            if (title.includes('2160p')) quality = '4K';
+            else if (title.includes('1080p')) quality = '1080p';
+            else if (title.includes('720p')) quality = '720p';
+            
+            // 3. عدد البذور
             const seeders = (title.match(/(\d+)\s*Seeds?/i) || [])[1] || '?';
+            
+            // 4. مصدر التورنت
             const source = (title.match(/\[(.*?)\]/) || [])[1] || 'Torrent';
             
+            // 5. معلومات الصوت
+            let audio = 'Stereo';
+            if (title.includes('DTS')) audio = 'DTS';
+            else if (title.includes('Dolby')) audio = 'Dolby';
+            
+            // 6. اللغة
+            let language = 'Multi';
+            if (title.includes('French')) language = 'French';
+            else if (title.includes('Arabic')) language = 'Arabic';
+            
+            // كل تفصيل في سطر منفصل
             const formattedTitle = 
-`🎬 ${movieName}
-📺 ${quality} | 👤 ${seeders}
-💾 ${size}
-🏷️ ${source}
-${isCached ? '✅ CACHED' : '🔗 TORRENT'}`;
+`${movieName}
+
+الجودة: ${quality}
+الحجم: ${size}
+البذور: ${seeders}
+المصدر: ${source}
+الصوت: ${audio}
+اللغة: ${language}
+الكاش: ${isCached ? 'نعم' : 'لا'}`;
             
             return {
                 title: formattedTitle,
@@ -92,116 +90,258 @@ ${isCached ? '✅ CACHED' : '🔗 TORRENT'}`;
         
         res.json({ streams: processedStreams });
         
-    } catch (error) {
-        console.error("❌ Stream error:", error.message);
+    } catch {
         res.json({ streams: [] });
     }
 });
 
-// INSTALL PAGE
+// ====== واجهة INSTALL PRO ======
 app.get('/install', (req, res) => {
-    const protocol = req.protocol;
-    const host = req.get('host');
-    const manifestUrl = `${protocol}://${host}/manifest.json`;
-    const stremioUrl = `stremio://stremio.xyz/app/${host}/manifest.json`;
+    const installUrl = `https://${req.hostname}/manifest.json`;
+    const stremioUrl = `stremio://stremio.xyz/app/${req.hostname}/manifest.json`;
     
     res.send(`
         <!DOCTYPE html>
-        <html>
+        <html lang="en">
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
             <title>Install Souhail Pro</title>
             <style>
+                * {
+                    margin: 0;
+                    padding: 0;
+                    box-sizing: border-box;
+                }
+                
                 body {
-                    font-family: Arial, sans-serif;
-                    background: #1a1a1a;
+                    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                    background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
                     color: white;
+                    min-height: 100vh;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
                     padding: 20px;
-                    text-align: center;
                 }
-                .container {
+                
+                .install-container {
+                    background: rgba(255, 255, 255, 0.1);
+                    backdrop-filter: blur(10px);
+                    border-radius: 20px;
+                    padding: 40px;
                     max-width: 500px;
-                    margin: 50px auto;
-                    padding: 30px;
-                    background: #2a2a2a;
+                    width: 100%;
+                    box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3);
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                }
+                
+                .logo {
+                    text-align: center;
+                    margin-bottom: 30px;
+                }
+                
+                .logo-icon {
+                    font-size: 60px;
+                    margin-bottom: 10px;
+                }
+                
+                h1 {
+                    text-align: center;
+                    margin-bottom: 10px;
+                    font-size: 28px;
+                    background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%);
+                    -webkit-background-clip: text;
+                    -webkit-text-fill-color: transparent;
+                }
+                
+                .subtitle {
+                    text-align: center;
+                    color: #aaa;
+                    margin-bottom: 30px;
+                    font-size: 16px;
+                }
+                
+                .status-box {
+                    background: rgba(0, 0, 0, 0.3);
+                    padding: 15px;
                     border-radius: 10px;
+                    margin-bottom: 25px;
+                    border-left: 4px solid ${RD_KEY ? '#00ff00' : '#ff0000'};
                 }
-                .url-box {
-                    background: #000;
-                    padding: 15px;
-                    margin: 20px 0;
-                    border-radius: 5px;
-                    font-family: monospace;
-                    word-break: break-all;
-                }
-                .btn {
-                    display: block;
-                    background: #00b4db;
-                    color: white;
-                    padding: 15px;
-                    margin: 10px 0;
-                    border-radius: 5px;
-                    text-decoration: none;
+                
+                .status-title {
                     font-weight: bold;
+                    margin-bottom: 5px;
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
                 }
+                
+                .install-buttons {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 15px;
+                }
+                
+                .btn {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 10px;
+                    padding: 18px;
+                    border-radius: 10px;
+                    text-decoration: none;
+                    font-size: 18px;
+                    font-weight: bold;
+                    transition: all 0.3s ease;
+                    border: none;
+                    cursor: pointer;
+                }
+                
+                .btn-primary {
+                    background: linear-gradient(135deg, #00b4db 0%, #0083b0 100%);
+                    color: white;
+                }
+                
+                .btn-secondary {
+                    background: rgba(255, 255, 255, 0.1);
+                    color: white;
+                    border: 1px solid rgba(255, 255, 255, 0.2);
+                }
+                
                 .btn:hover {
-                    background: #0083b0;
+                    transform: translateY(-2px);
+                    box-shadow: 0 10px 20px rgba(0, 0, 0, 0.2);
+                }
+                
+                .url-box {
+                    background: rgba(0, 0, 0, 0.3);
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin-top: 20px;
+                    font-family: 'Courier New', monospace;
+                    word-break: break-all;
+                    font-size: 14px;
+                }
+                
+                .features {
+                    margin-top: 30px;
+                }
+                
+                .feature-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    margin-bottom: 10px;
+                    padding: 10px;
+                    background: rgba(255, 255, 255, 0.05);
+                    border-radius: 5px;
                 }
             </style>
         </head>
         <body>
-            <div class="container">
-                <h1>🎬 Souhail Pro</h1>
-                <p>Install this addon in Stremio</p>
+            <div class="install-container">
+                <div class="logo">
+                    <div class="logo-icon">🎬</div>
+                    <h1>Souhail Pro</h1>
+                    <p class="subtitle">Professional Real-Debrid Streaming</p>
+                </div>
                 
-                <div class="url-box">${manifestUrl}</div>
+                <div class="status-box">
+                    <div class="status-title">
+                        <span>🔧 Configuration Status:</span>
+                        <span style="color: ${RD_KEY ? '#00ff00' : '#ff0000'}">
+                            ${RD_KEY ? '✅ Ready to Install' : '❌ Real-Debrid API Required'}
+                        </span>
+                    </div>
+                    ${RD_KEY ? 
+                        '<p>All systems ready for installation.</p>' : 
+                        '<p>Add REAL_DEBRID_API in Railway Variables.</p>'
+                    }
+                </div>
                 
-                <a href="${stremioUrl}" class="btn">📲 Auto-Install</a>
+                <div class="install-buttons">
+                    <a href="${stremioUrl}" class="btn btn-primary" onclick="installClick()">
+                        <span>📲</span>
+                        <span>Install Now</span>
+                    </a>
+                    
+                    <button class="btn btn-secondary" onclick="copyUrl()">
+                        <span>📋</span>
+                        <span>Copy Installation URL</span>
+                    </button>
+                </div>
                 
-                <p>OR</p>
+                <div class="url-box" id="urlBox">
+                    ${installUrl}
+                </div>
                 
-                <ol style="text-align: left;">
-                    <li>Open Stremio</li>
-                    <li>Click Addons (top left)</li>
-                    <li>Click Manual Install</li>
-                    <li>Paste the URL above</li>
-                    <li>Click Install</li>
-                </ol>
+                <div class="features">
+                    <h3 style="margin-bottom: 15px;">✨ Features:</h3>
+                    <div class="feature-item">
+                        <span>✅</span>
+                        <span>Complete torrent information display</span>
+                    </div>
+                    <div class="feature-item">
+                        <span>✅</span>
+                        <span>Organized multi-line details</span>
+                    </div>
+                    <div class="feature-item">
+                        <span>✅</span>
+                        <span>Real-Debrid cached streams</span>
+                    </div>
+                    <div class="feature-item">
+                        <span>✅</span>
+                        <span>Quality, size, and seeders info</span>
+                    </div>
+                </div>
             </div>
+            
+            <script>
+                function installClick() {
+                    setTimeout(() => {
+                        document.getElementById('urlBox').style.display = 'block';
+                    }, 1000);
+                }
+                
+                function copyUrl() {
+                    const url = '${installUrl}';
+                    navigator.clipboard.writeText(url).then(() => {
+                        alert('✅ Installation URL copied to clipboard!');
+                    }).catch(err => {
+                        prompt('Copy this URL:', url);
+                    });
+                }
+                
+                // Auto-try installation on page load
+                window.onload = function() {
+                    if (window.location.protocol !== 'file:') {
+                        setTimeout(() => {
+                            window.location.href = '${stremioUrl}';
+                        }, 500);
+                    }
+                };
+            </script>
         </body>
         </html>
     `);
 });
 
-// ROOT
+// HOME
 app.get('/', (req, res) => {
     res.redirect('/install');
 });
 
 // HEALTH
 app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
+    res.json({ 
+        status: 'ok', 
         service: 'Souhail Pro',
-        version: '1.0.0',
-        rd_configured: !!RD_KEY
+        realdebrid: RD_KEY ? 'configured' : 'missing'
     });
 });
 
-// START
 app.listen(PORT, () => {
-    console.log('================================');
-    console.log('🚀 Souhail Pro Addon Started');
-    console.log('================================');
-    console.log(`📡 Port: ${PORT}`);
-    console.log(`🔗 Local: http://localhost:${PORT}`);
-    console.log(`📄 Manifest: http://localhost:${PORT}/manifest.json`);
-    console.log(`🔑 Real-Debrid: ${RD_KEY ? '✅ Configured' : '❌ NOT Configured'}`);
-    console.log('================================');
-    console.log('📲 TO INSTALL:');
-    console.log(`1. Open Stremio`);
-    console.log(`2. Addons → Manual Install`);
-    console.log(`3. Paste: http://localhost:${PORT}/manifest.json`);
-    console.log('================================');
+    console.log(`🚀 Souhail Pro Installation Portal: http://localhost:${PORT}/install`);
 });
