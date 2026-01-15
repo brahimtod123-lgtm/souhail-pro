@@ -55,7 +55,7 @@ app.get("/stream/:type/:id.json", async (req, res) => {
 3️⃣♻️🎥 (${extractVideoRange(title)})              ♻️🎞️ ${extract(title, /(H\.265|H\.264|x265|x264)/i) || "H.264"}
 4️⃣♻️📽️ ${extract(title, /(2160p|1080p|720p)/i)}.                
 5️⃣♻️🔊 ${extract(title, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio"}            ♻️ 🌍 EN / AR
-7️⃣♻️🧲 ${extract(title, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent"}      ♻️ ⚡ RD Cached  
+6️⃣6️⃣6️⃣6️⃣6️⃣6️⃣6️⃣♻️🧲 ${extract(title, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent"}6️⃣6️⃣6️⃣6️⃣6️⃣6️⃣6️⃣
           `.trim()
         };
       });
