@@ -15,7 +15,7 @@ app.get("/manifest.json", (req, res) => {
   res.json({
     id: "com.souhail.stremio",
     version: "1.0.0",
-    name: "♻️🟢Souhail Premium🟢♻️",
+    name: "❄️🟢Souhail Premium🟢❄️",
     description: "Real-Debrid Streams (Clean & Technical)",
     resources: ["stream"],
     types: ["movie", "series"]
