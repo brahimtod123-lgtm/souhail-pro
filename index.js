@@ -48,7 +48,7 @@ app.get("/stream/:type/:id.json", async (req, res) => {
 
         return {
           ...s,
-          name: "💥🟢SOUHAIL/RD🟢💥",
+          name: "🛟🟢SOUHAIL/RD🟢🛟",
           title: `
 1️⃣♻️🎬 ${extractCleanMovieTitle(title)}
 2️⃣♻️🎥 (${extractVideoRange(title)})   
