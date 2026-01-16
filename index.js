@@ -81,7 +81,7 @@ app.get("/stream/:type/:id.json", async (req, res) => {
         const aTitle = a.title || "";
         const bTitle = b.title || "";
         
-        // أولاً: 4K > 1080p > 720p
+        // أولاً: 4K > 1080p > 720p > HD
         const aQualityScore = getQualityScore(aTitle);
         const bQualityScore = getQualityScore(bTitle);
         if (aQualityScore !== bQualityScore) {
@@ -101,25 +101,24 @@ app.get("/stream/:type/:id.json", async (req, res) => {
         // استخراج المعلومات
         const videoRange = extractVideoRange(t);
         const sizeFormatted = formatSize(extractSize(t));
-        const quality = extract(t, /(2160p|1080p|720p)/i);
+        const quality = extract(t, /(2160p|1080p|720p|480p|360p)/i) || "HD";
         const codec = extract(t, /(H\.265|H\.264|x265|x264)/i) || "H.264";
         const audio = extract(t, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio";
         const source = extract(t, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent";
         
         // بناء العنوان بالشكل المطلوب
-        const displayTitle = `🎬 ${cleanTitle(t, movieName, movieYear)}
-💾 ${sizeFormatted} | ${videoRange}
-📽️ ${quality} | 🎞️ ${codec}
-🔊 ${audio} | 🧲 ${source}
-${isCached ? '✅ Cached on RD' : '🔗 Direct Torrent'}`;
+        const displayTitle = `❄️🎬 ${cleanTitle(t, movieName, movieYear)}
+🟢💾 ${sizeFormatted}  | 🟢📽️ ${videoRange}
+🟢📺 ${quality}  | 🟢🎞️ ${codec}
+🟢🔊 ${audio}  | 🟢🧲 ${source}
+🟢📡${isCached ? '✅ Cached on RD' : '🔗 Direct Torrent'}`;
         
         return {
           title: displayTitle,
           url: s.url,
           behaviorHints: s.behaviorHints || {}
         };
-      })
-      .slice(0, 15); // الحد الأقصى 15 ستريم
+      });
     
     console.log(`🎉 Returning ${streams.length} processed streams`);
     res.json({ streams });
@@ -159,14 +158,20 @@ app.get("/install", (req, res) => {
           padding: 30px;
           border-radius: 15px;
         }
-        .example {
-          background: #333;
-          padding: 15px;
+        .quality-examples {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 10px;
           margin: 20px 0;
-          border-radius: 10px;
+        }
+        .quality-box {
+          background: #333;
+          padding: 10px;
+          border-radius: 8px;
           text-align: left;
-          white-space: pre-line;
           font-family: monospace;
+          font-size: 12px;
+          white-space: pre-line;
         }
         .btn {
           display: block;
@@ -187,27 +192,42 @@ app.get("/install", (req, res) => {
     <body>
       <div class="container">
         <h1>🎬 Souhail Premium</h1>
-        <p>Real-Debrid Streaming with Clean Details</p>
+        <p>Real-Debrid Streaming - All Qualities Available</p>
         
-        <div class="example">
-🎬 One Battle After Another (2025)
-💾 28.67 GB | Dolby Vision
+        <div class="quality-examples">
+          <div class="quality-box">
+🎬 Movie (2024)
+💾 28.67 GB | DV
 📽️ 2160p | 🎞️ H.265
-🔊 Atmos | 🧲 ThePirateBay
+🔊 Atmos | 🧲 TPB
 ✅ Cached on RD
+          </div>
+          <div class="quality-box">
+🎬 Movie (2024)
+💾 8.75 GB | HDR
+📽️ 1080p | 🎞️ H.264
+🔊 5.1 | 🧲 YTS
+✅ Cached on RD
+          </div>
+          <div class="quality-box">
+🎬 Movie (2024)
+💾 1.45 GB | SDR
+📽️ 720p | 🎞️ x264
+🔊 AAC | 🧲 1337x
+✅ Cached on RD
+          </div>
         </div>
         
         <a href="${stremioUrl}" class="btn">📲 Install in Stremio</a>
         <a href="/manifest.json" class="btn" style="background: #666;">📄 View Manifest</a>
         
         <div style="margin-top: 30px; text-align: left;">
-          <h3>✨ Display Format:</h3>
+          <h3>✨ Available Qualities:</h3>
           <ul>
-            <li>🎬 Movie name and year</li>
-            <li>💾 Size | HDR/DV info</li>
-            <li>📽️ Quality | 🎞️ Codec</li>
-            <li>🔊 Audio | 🧲 Source</li>
-            <li>✅ RD Cache status</li>
+            <li>✅ 4K (2160p) - Highest quality</li>
+            <li>✅ 1080p (Full HD) - Best balance</li>
+            <li>✅ 720p (HD) - Smaller size</li>
+            <li>✅ All cached on Real-Debrid</li>
           </ul>
         </div>
       </div>
@@ -226,7 +246,8 @@ app.get("/health", (req, res) => {
     status: "ok",
     service: "Souhail Premium",
     version: "2.0.0",
-    rd_configured: !!RD_KEY
+    rd_configured: !!RD_KEY,
+    qualities: ["4K", "1080p", "720p"]
   });
 });
 
@@ -235,26 +256,41 @@ app.get("/health", (req, res) => {
 ========================= */
 app.get("/test/:id?", async (req, res) => {
   const testId = req.params.id || "tt0111161";
-  const testTitle = "[RD] Jackettio | ElfHosted (4K) One.Battle.After.Another.2025.2160p.A.MZN.VBR.WEB-DL.DDP5.1.H.265-GTM 16.83 GB 🌟 793 🌟 thepiratebay";
   
-  const result = {
-    original_title: testTitle,
-    cleaned: cleanTitle(testTitle),
-    size: formatSize(extractSize(testTitle)),
-    video_range: extractVideoRange(testTitle),
-    quality: extract(testTitle, /(2160p|1080p|720p)/i),
-    codec: extract(testTitle, /(H\.265|H\.264|x265|x264)/i) || "H.264",
-    audio: extract(testTitle, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio",
-    source: extract(testTitle, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent",
-    final_display: `🎬 ${cleanTitle(testTitle)}
+  // أمثلة للجودات المختلفة
+  const testTitles = [
+    "One.Battle.After.Another.2025.2160p.WEB-DL.DV.HDR.DDP5.1.Atmos.H265-AOC 28.67 GB 🌟 455 🌟 thepiratebay",
+    "The.Movie.2024.1080p.BluRay.x264.DTS-HD.MA.5.1-RARBG 8.75 GB 🌟 1250 🌟 rarbg",
+    "Another.Movie.2023.720p.BluRay.x264.AAC-YTS 1.45 GB 🌟 5200 🌟 yts"
+  ];
+  
+  const results = testTitles.map((testTitle, index) => {
+    const quality = index === 0 ? "4K" : index === 1 ? "1080p" : "720p";
+    
+    return {
+      quality: quality,
+      original_title: testTitle,
+      cleaned: cleanTitle(testTitle),
+      size: formatSize(extractSize(testTitle)),
+      video_range: extractVideoRange(testTitle),
+      quality_extracted: extract(testTitle, /(2160p|1080p|720p|480p|360p)/i) || "HD",
+      codec: extract(testTitle, /(H\.265|H\.264|x265|x264)/i) || "H.264",
+      audio: extract(testTitle, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio",
+      source: extract(testTitle, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent",
+      final_display: `🎬 ${cleanTitle(testTitle)}
 💾 ${formatSize(extractSize(testTitle))} | ${extractVideoRange(testTitle)}
-📽️ ${extract(testTitle, /(2160p|1080p|720p)/i)}
+📽️ ${extract(testTitle, /(2160p|1080p|720p|480p|360p)/i) || "HD"}
 🎞️ ${extract(testTitle, /(H\.265|H\.264|x265|x264)/i) || "H.264"}
 🔊 ${extract(testTitle, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio"}
 🧲 ${extract(testTitle, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent"}`
-  };
+    };
+  });
   
-  res.json(result);
+  res.json({
+    test_id: testId,
+    qualities_tested: ["4K", "1080p", "720p"],
+    results: results
+  });
 });
 
 /* =========================
@@ -289,7 +325,7 @@ function cleanTitle(text, movieName = "", movieYear = "") {
     .trim();
   
   // إزالة المعلومات التقنية
-  const techTerms = ['2160p', '1080p', '720p', '4K', 'WEB-DL', 'WEBRip', 'BluRay', 
+  const techTerms = ['2160p', '1080p', '720p', '480p', '360p', '4K', 'WEB-DL', 'WEBRip', 'BluRay', 
                     'HDR', 'DV', 'x265', 'x264', 'H.265', 'H.264', 'DTS', 'Atmos',
                     'AAC', 'AC3', '5.1', '10Bit', 'REMUX', 'VBR', 'CBR'];
   
@@ -329,9 +365,10 @@ function formatSize(sizeMB) {
 }
 
 function getQualityScore(title) {
-  if (/(2160p|4K)/i.test(title)) return 3;
-  if (/(1080p|FHD)/i.test(title)) return 2;
-  if (/(720p|HD)/i.test(title)) return 1;
+  if (/(2160p|4K)/i.test(title)) return 4;
+  if (/(1080p|FHD)/i.test(title)) return 3;
+  if (/(720p|HD)/i.test(title)) return 2;
+  if (/(480p|SD)/i.test(title)) return 1;
   return 0;
 }
 
@@ -347,11 +384,29 @@ app.listen(PORT, () => {
 📲 Install: http://localhost:${PORT}/install
 🔧 Test: http://localhost:${PORT}/test
 =======================================
-Example Output:
-🎬 One Battle After Another (2025)
+Available Qualities:
+✅ 4K (2160p) - Ultra HD
+✅ 1080p - Full HD
+✅ 720p - HD
+✅ All cached on Real-Debrid
+=======================================
+Example Outputs:
+🎬 Movie (2024)
 💾 28.67 GB | Dolby Vision
 📽️ 2160p | 🎞️ H.265
 🔊 Atmos | 🧲 ThePirateBay
+✅ Cached on RD
+
+🎬 Movie (2024)
+💾 8.75 GB | HDR
+📽️ 1080p | 🎞️ H.264
+🔊 5.1 | 🧲 YTS
+✅ Cached on RD
+
+🎬 Movie (2024)
+💾 1.45 GB | SDR
+📽️ 720p | 🎞️ x264
+🔊 AAC | 🧲 1337x
 ✅ Cached on RD
 =======================================
   `);
