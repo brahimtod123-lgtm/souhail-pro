@@ -30,8 +30,7 @@ app.get("/stream/:type/:id.json", async (req, res) => {
 
   try {
     const torrentioUrl =
-      `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/${req.params.type}/${req.params.id}.json`;
-
+  `https://torrentio.strem.fun/realdebrid=${RD_KEY}|onlyCached=1/stream/${req.params.type}/${req.params.id}.json`;
     const response = await fetch(torrentioUrl);
     const data = await response.json();
 
