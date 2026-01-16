@@ -194,10 +194,10 @@ function processStreams(streams, movieId) {
       
       return {
         title: `🎬 ${cleanName}
-💾 ${sizeFormatted} | ${videoRange}
-📽️ ${quality} | 🎞️ ${codec}
-🔊 ${audio} | 🧲 ${source}
-${isCached ? '✅ Cached on RD' : '🔗 Direct Torrent'}`,
+🔷💾 ${sizeFormatted}   🔷📽️| ${videoRange}
+🔷📺 ${quality} | 🎞️ ${codec}
+🔷🔊 ${audio} | 🧲 ${source}
+🔷${isCached ? '✅ Cached on RD' : '🔗 Direct Torrent'}`,
         url: s.url,
         behaviorHints: s.behaviorHints || {}
       };
