@@ -9,14 +9,14 @@ const RD_KEY = process.env.REAL_DEBRID_API;
 console.log(`Starting with PORT: ${PORT}, RD_KEY: ${RD_KEY ? "yes" : "no"}`);
 
 /* =========================
-   MANIFEST - CORRECTED
+   MANIFEST
 ========================= */
 app.get("/manifest.json", (req, res) => {
   res.json({
-    id: "com.souhail.stremio",
-    version: "1.0.0",
+    id: "com.souhail.premium",
+    version: "2.0.0",
     name: "Souhail Premium",
-    description: "Real-Debrid Streams with Full Info",
+    description: "Real-Debrid Streams with Clean Details",
     logo: "https://cdn-icons-png.flaticon.com/512/3095/3095588.png",
     background: "https://images.unsplash.com/photo-1536440136628-849c177e76a1",
     resources: ["stream"],
@@ -27,90 +27,105 @@ app.get("/manifest.json", (req, res) => {
 });
 
 /* =========================
-   STREAM - CORRECTED
+   STREAM
 ========================= */
 app.get("/stream/:type/:id.json", async (req, res) => {
-  console.log(`Request: ${req.params.type}/${req.params.id}`);
-  
   if (!RD_KEY) {
-    console.log("No RD Key");
+    console.log("❌ No RD Key");
     return res.json({ streams: [] });
   }
 
   try {
-    // الرابط الصحيح
-    const torrentioUrl = `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/${req.params.type}/${req.params.id}.json`;
-    console.log(`Fetching: ${torrentioUrl}`);
+    const { type, id } = req.params;
     
-    const response = await fetch(torrentioUrl, {
-      timeout: 10000,
-      headers: {
-        'User-Agent': 'Mozilla/5.0'
+    // 1. الحصول على معلومات الفيلم
+    let movieName = "Movie";
+    let movieYear = "";
+    
+    try {
+      const tmdbResponse = await fetch(
+        `https://api.themoviedb.org/3/find/${id}?api_key=9b8933e4c7b5c78de32f1d301b6988ed&external_source=imdb_id`
+      );
+      const tmdbData = await tmdbResponse.json();
+      if (tmdbData.movie_results && tmdbData.movie_results.length > 0) {
+        movieName = tmdbData.movie_results[0].title;
+        movieYear = tmdbData.movie_results[0].release_date?.substring(0, 4) || "";
       }
-    });
-    
-    if (!response.ok) {
-      console.log(`Torrentio error: ${response.status}`);
-      return res.json({ streams: [] });
+    } catch (tmdbError) {
+      console.log("TMDB error, using default name");
     }
     
+    // 2. الحصول على الستريمات من Torrentio
+    const torrentioUrl = `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/${type}/${id}.json`;
+    console.log(`🌐 Fetching: ${torrentioUrl}`);
+    
+    const response = await fetch(torrentioUrl);
     const data = await response.json();
-    console.log(`Got ${data.streams?.length || 0} streams`);
-
+    
     if (!data.streams || data.streams.length === 0) {
+      console.log("⚠️ No streams found");
       return res.json({ streams: [] });
     }
-
+    
+    console.log(`✅ Found ${data.streams.length} streams`);
+    
+    // 3. معالجة الستريمات
     const streams = data.streams
+      // تصفية الأنواع السيئة
       .filter(s => {
-        const title = s.title || s.name || "";
-        // إزالة الأنواع السيئة
-        return !/(CAM|TS|Telesync|SCR|HDCAM|R5|DVDScr)/i.test(title);
+        const t = s.title || s.name || "";
+        return !/(CAM|TS|Telesync|SCR|HDCAM|R5|DVDScr)/i.test(t);
       })
+      // ترتيب حسب الجودة والحجم
       .sort((a, b) => {
-        // ترتيب: 4K أولاً، ثم 1080p، ثم 720p
-        const aQuality = getQualityScore(a.title || "");
-        const bQuality = getQualityScore(b.title || "");
-        return bQuality - aQuality;
+        const aTitle = a.title || "";
+        const bTitle = b.title || "";
+        
+        // أولاً: 4K > 1080p > 720p
+        const aQualityScore = getQualityScore(aTitle);
+        const bQualityScore = getQualityScore(bTitle);
+        if (aQualityScore !== bQualityScore) {
+          return bQualityScore - aQualityScore;
+        }
+        
+        // ثم: الحجم الأكبر أولاً
+        const aSize = extractSize(aTitle);
+        const bSize = extractSize(bTitle);
+        return bSize - aSize;
       })
-      .map((s, index) => {
-        const title = s.title || s.name || "";
+      // بناء العناوين النهائية
+      .map(s => {
+        const t = s.title || s.name || "";
         const isCached = s.url.includes('real-debrid.com');
         
         // استخراج المعلومات
-        const movieName = extractMovieName(title);
-        const size = extractSizeFormatted(title);
-        const quality = extractQuality(title);
-        const codec = extractCodec(title);
-        const audio = extractAudio(title);
-        const source = extractSource(title);
-        const seeders = extractSeeders(title);
+        const videoRange = extractVideoRange(t);
+        const sizeFormatted = formatSize(extractSize(t));
+        const quality = extract(t, /(2160p|1080p|720p)/i);
+        const codec = extract(t, /(H\.265|H\.264|x265|x264)/i) || "H.264";
+        const audio = extract(t, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio";
+        const source = extract(t, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent";
         
-        // بناء العنوان بشكل منظم
-        const streamTitle = `${movieName}
-
-Quality: ${quality}
-Size: ${size}
-Codec: ${codec}
-Audio: ${audio}
-Seeders: ${seeders}
-Source: ${source}
-Status: ${isCached ? '✅ Cached' : '🔗 Torrent'}`;
-
+        // بناء العنوان بالشكل المطلوب
+        const displayTitle = `🎬 ${cleanTitle(t, movieName, movieYear)}
+💾 ${sizeFormatted} | ${videoRange}
+📽️ ${quality} | 🎞️ ${codec}
+🔊 ${audio} | 🧲 ${source}
+${isCached ? '✅ Cached on RD' : '🔗 Direct Torrent'}`;
+        
         return {
-          title: streamTitle,
+          title: displayTitle,
           url: s.url,
-          name: `Souhail Premium - ${index + 1}`,
           behaviorHints: s.behaviorHints || {}
         };
       })
-      .slice(0, 10); // الحد الأقصى 10 ستريمات
-
-    console.log(`Returning ${streams.length} streams`);
+      .slice(0, 15); // الحد الأقصى 15 ستريم
+    
+    console.log(`🎉 Returning ${streams.length} processed streams`);
     res.json({ streams });
-
+    
   } catch (err) {
-    console.error("Stream error:", err.message);
+    console.error("💥 Stream error:", err.message);
     res.json({ streams: [] });
   }
 });
@@ -128,7 +143,7 @@ app.get("/install", (req, res) => {
     <html>
     <head>
       <meta charset="UTF-8">
-      <title>Install Souhail Premium</title>
+      <title>Souhail Premium</title>
       <style>
         body {
           font-family: Arial, sans-serif;
@@ -144,61 +159,55 @@ app.get("/install", (req, res) => {
           padding: 30px;
           border-radius: 15px;
         }
-        .install-btn {
+        .example {
+          background: #333;
+          padding: 15px;
+          margin: 20px 0;
+          border-radius: 10px;
+          text-align: left;
+          white-space: pre-line;
+          font-family: monospace;
+        }
+        .btn {
           display: block;
           width: 100%;
           padding: 15px;
-          margin: 20px 0;
+          margin: 10px 0;
           background: #00b4db;
           color: white;
           text-decoration: none;
           border-radius: 10px;
           font-weight: bold;
-          font-size: 18px;
         }
-        .url-box {
-          background: #333;
-          padding: 15px;
-          margin: 20px 0;
-          border-radius: 10px;
-          font-family: monospace;
-          word-break: break-all;
-        }
-        .status {
-          padding: 15px;
-          margin: 20px 0;
-          background: ${RD_KEY ? '#00ff0020' : '#ff000020'};
-          border-radius: 10px;
+        .btn:hover {
+          background: #0083b0;
         }
       </style>
     </head>
     <body>
       <div class="container">
         <h1>🎬 Souhail Premium</h1>
-        <p>Real-Debrid Streaming Addon</p>
+        <p>Real-Debrid Streaming with Clean Details</p>
         
-        <div class="status">
-          <h3>${RD_KEY ? '✅ Ready to Install' : '❌ Configuration Required'}</h3>
-          <p>Real-Debrid API: ${RD_KEY ? 'Configured' : 'Not Configured'}</p>
+        <div class="example">
+🎬 One Battle After Another (2025)
+💾 28.67 GB | Dolby Vision
+📽️ 2160p | 🎞️ H.265
+🔊 Atmos | 🧲 ThePirateBay
+✅ Cached on RD
         </div>
         
-        <a href="${stremioUrl}" class="install-btn">📲 Install in Stremio</a>
-        
-        <div class="url-box">
-          <strong>Manifest URL:</strong><br>
-          ${manifestUrl}
-        </div>
-        
-        <p>Or install manually in Stremio: Addons → Manual Install</p>
+        <a href="${stremioUrl}" class="btn">📲 Install in Stremio</a>
+        <a href="/manifest.json" class="btn" style="background: #666;">📄 View Manifest</a>
         
         <div style="margin-top: 30px; text-align: left;">
-          <h3>✨ Features:</h3>
+          <h3>✨ Display Format:</h3>
           <ul>
-            <li>✅ Real-Debrid cached streams</li>
-            <li>✅ Filtered quality (no CAM/TS)</li>
-            <li>✅ Complete torrent information</li>
-            <li>✅ Organized display</li>
-            <li>✅ Multiple qualities (4K, 1080p, 720p)</li>
+            <li>🎬 Movie name and year</li>
+            <li>💾 Size | HDR/DV info</li>
+            <li>📽️ Quality | 🎞️ Codec</li>
+            <li>🔊 Audio | 🧲 Source</li>
+            <li>✅ RD Cache status</li>
           </ul>
         </div>
       </div>
@@ -216,110 +225,114 @@ app.get("/health", (req, res) => {
   res.json({
     status: "ok",
     service: "Souhail Premium",
+    version: "2.0.0",
     rd_configured: !!RD_KEY
   });
 });
 
 /* =========================
-   DEBUG ENDPOINT
+   DEBUG TEST
 ========================= */
-app.get("/debug", async (req, res) => {
-  const testUrl = `https://torrentio.strem.fun/realdebrid=${RD_KEY}/stream/movie/tt0111161.json`;
+app.get("/test/:id?", async (req, res) => {
+  const testId = req.params.id || "tt0111161";
+  const testTitle = "[RD] Jackettio | ElfHosted (4K) One.Battle.After.Another.2025.2160p.A.MZN.VBR.WEB-DL.DDP5.1.H.265-GTM 16.83 GB 🌟 793 🌟 thepiratebay";
   
-  try {
-    const response = await fetch(testUrl);
-    const data = await response.json();
-    
-    res.json({
-      success: true,
-      rd_key_present: !!RD_KEY,
-      rd_key_length: RD_KEY ? RD_KEY.length : 0,
-      torrentio_url: testUrl,
-      streams_count: data.streams?.length || 0,
-      sample_stream: data.streams?.[0] || null
-    });
-  } catch (error) {
-    res.json({
-      success: false,
-      error: error.message,
-      rd_key_present: !!RD_KEY
-    });
-  }
+  const result = {
+    original_title: testTitle,
+    cleaned: cleanTitle(testTitle),
+    size: formatSize(extractSize(testTitle)),
+    video_range: extractVideoRange(testTitle),
+    quality: extract(testTitle, /(2160p|1080p|720p)/i),
+    codec: extract(testTitle, /(H\.265|H\.264|x265|x264)/i) || "H.264",
+    audio: extract(testTitle, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio",
+    source: extract(testTitle, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent",
+    final_display: `🎬 ${cleanTitle(testTitle)}
+💾 ${formatSize(extractSize(testTitle))} | ${extractVideoRange(testTitle)}
+📽️ ${extract(testTitle, /(2160p|1080p|720p)/i)}
+🎞️ ${extract(testTitle, /(H\.265|H\.264|x265|x264)/i) || "H.264"}
+🔊 ${extract(testTitle, /(Atmos|DDP5\.1|DD5\.1|AC3|AAC)/i) || "Audio"}
+🧲 ${extract(testTitle, /(YTS|RARBG|TPB|ThePirateBay|1337x)/i) || "Torrent"}`
+  };
+  
+  res.json(result);
 });
 
 /* =========================
    HELPER FUNCTIONS
 ========================= */
+function extract(text, regex) {
+  const match = text.match(regex);
+  return match ? match[0] : null;
+}
+
+function extractVideoRange(text) {
+  if (/dolby\s?vision|dv/i.test(text)) return "Dolby Vision";
+  if (/hdr10\+/i.test(text)) return "HDR10+";
+  if (/hdr/i.test(text)) return "HDR";
+  return "SDR";
+}
+
+function cleanTitle(text, movieName = "", movieYear = "") {
+  if (movieName && movieName !== "Movie") {
+    return `${movieName}${movieYear ? ` (${movieYear})` : ''}`;
+  }
+  
+  // تنظيف العنوان الأصلي
+  let cleaned = text
+    .replace(/\[RD\]/g, '')
+    .replace(/Jackettio/g, '')
+    .replace(/ElfHosted/g, '')
+    .replace(/Torrentio/g, '')
+    .replace(/Souhail Pro/g, '')
+    .replace(/\./g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  // إزالة المعلومات التقنية
+  const techTerms = ['2160p', '1080p', '720p', '4K', 'WEB-DL', 'WEBRip', 'BluRay', 
+                    'HDR', 'DV', 'x265', 'x264', 'H.265', 'H.264', 'DTS', 'Atmos',
+                    'AAC', 'AC3', '5.1', '10Bit', 'REMUX', 'VBR', 'CBR'];
+  
+  techTerms.forEach(term => {
+    cleaned = cleaned.replace(new RegExp(term, 'gi'), '');
+  });
+  
+  // استخراج اسم الفيلم (أول 3 كلمات)
+  const words = cleaned.split(' ').filter(w => w.length > 2);
+  const moviePart = words.slice(0, 3).join(' ');
+  
+  // استخراج السنة
+  const yearMatch = text.match(/(19|20)\d{2}/);
+  const year = yearMatch ? yearMatch[0] : "";
+  
+  return `${moviePart || "Movie"}${year ? ` (${year})` : ''}`;
+}
+
+function extractSize(text) {
+  const match = text.match(/(\d+(\.\d+)?)\s?(GB|MB)/i);
+  if (!match) return 0;
+  
+  const size = parseFloat(match[1]);
+  const unit = match[3].toUpperCase();
+  
+  return unit === "GB" ? size * 1024 : size;
+}
+
+function formatSize(sizeMB) {
+  if (!sizeMB || sizeMB === 0) return "Size N/A";
+  
+  if (sizeMB >= 1024) {
+    return (sizeMB / 1024).toFixed(2) + " GB";
+  } else {
+    return sizeMB.toFixed(0) + " MB";
+  }
+}
+
 function getQualityScore(title) {
   if (/(2160p|4K)/i.test(title)) return 3;
   if (/(1080p|FHD)/i.test(title)) return 2;
   if (/(720p|HD)/i.test(title)) return 1;
   return 0;
-}
-
-function extractMovieName(title) {
-  // إزالة المعلومات التقنية
-  let name = title
-    .replace(/\[.*?\]/g, '')
-    .replace(/\(.*?\)/g, '')
-    .replace(/\./g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  // إزالة الجودة والمعلومات التقنية
-  const techTerms = ['2160p', '1080p', '720p', '4K', 'WEB-DL', 'WEBRip', 'BluRay', 
-                    'HDR', 'DV', 'x265', 'x264', 'H.265', 'H.264', 'DTS', 'Atmos',
-                    'AAC', 'AC3', '5.1', '10Bit', 'REMUX'];
-  
-  techTerms.forEach(term => {
-    name = name.replace(new RegExp(term, 'gi'), '');
-  });
-  
-  return name.substring(0, 50).trim() || 'Movie';
-}
-
-function extractQuality(title) {
-  if (/(2160p|4K)/i.test(title)) return '4K';
-  if (/(1080p|FHD)/i.test(title)) return '1080p';
-  if (/(720p|HD)/i.test(title)) return '720p';
-  return 'HD';
-}
-
-function extractSizeFormatted(title) {
-  const match = title.match(/(\d+(\.\d+)?)\s*(GB|MB)/i);
-  if (match) {
-    return `${match[1]} ${match[3].toUpperCase()}`;
-  }
-  return 'Unknown';
-}
-
-function extractCodec(title) {
-  if (/(x265|H\.265|H265)/i.test(title)) return 'H.265 / x265';
-  if (/(x264|H\.264|H264)/i.test(title)) return 'H.264 / x264';
-  return 'Unknown';
-}
-
-function extractAudio(title) {
-  if (/Atmos/i.test(title)) return 'Dolby Atmos';
-  if (/DTS/i.test(title)) return 'DTS';
-  if (/DDP5\.1/i.test(title)) return 'DDP5.1';
-  if (/5\.1/i.test(title)) return '5.1 Surround';
-  if (/AAC/i.test(title)) return 'AAC';
-  if (/AC3/i.test(title)) return 'AC3';
-  return 'Stereo';
-}
-
-function extractSource(title) {
-  if (/YTS/i.test(title)) return 'YTS';
-  if (/RARBG/i.test(title)) return 'RARBG';
-  if (/1337x/i.test(title)) return '1337x';
-  if (/thepiratebay|piratebay|TPB/i.test(title)) return 'The Pirate Bay';
-  return 'Torrent';
-}
-
-function extractSeeders(title) {
-  const match = title.match(/(\d+)\s*(seeds|seeders|🌟)/i);
-  return match ? match[1] : '?';
 }
 
 /* =========================
@@ -328,12 +341,18 @@ function extractSeeders(title) {
 app.listen(PORT, () => {
   console.log(`
 =======================================
-🎬 Souhail Premium Server Started
+🎬 Souhail Premium v2.0.0
 =======================================
 📍 Local: http://localhost:${PORT}
 📲 Install: http://localhost:${PORT}/install
-🔧 Debug: http://localhost:${PORT}/debug
-🔑 RD Key: ${RD_KEY ? '✅ Configured' : '❌ Missing'}
+🔧 Test: http://localhost:${PORT}/test
+=======================================
+Example Output:
+🎬 One Battle After Another (2025)
+💾 28.67 GB | Dolby Vision
+📽️ 2160p | 🎞️ H.265
+🔊 Atmos | 🧲 ThePirateBay
+✅ Cached on RD
 =======================================
   `);
 });
